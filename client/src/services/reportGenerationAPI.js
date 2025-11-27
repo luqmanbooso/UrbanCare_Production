@@ -1,8 +1,12 @@
 import axios from 'axios';
 
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  `${window.location.origin.replace(/\/$/, '')}/api`;
+
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL: API_BASE,
   timeout: 30000, // 30 seconds for report generation
 });
 

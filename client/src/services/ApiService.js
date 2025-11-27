@@ -12,6 +12,12 @@ import axios from 'axios';
  */
 class ApiService {
   static instance = null;
+  static resolveBaseUrl() {
+    return (
+      process.env.REACT_APP_API_URL ||
+      `${window.location.origin.replace(/\/$/, '')}/api`
+    );
+  }
 
   /**
    * Creates an instance of ApiService
@@ -21,7 +27,7 @@ class ApiService {
       return ApiService.instance;
     }
 
-    this.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+    this.baseURL = ApiService.resolveBaseUrl();
     this.timeout = 30000; // 30 seconds
     
     this.axiosInstance = axios.create({

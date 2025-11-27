@@ -23,7 +23,9 @@ const PatientIdentityVerification = () => {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [verificationNote, setVerificationNote] = useState('');
   const [nicImageUrl, setNicImageUrl] = useState(null);
-  const apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+  const apiBaseUrl =
+    process.env.REACT_APP_API_URL ||
+    `${window.location.origin.replace(/\/$/, '')}/api`;
 
   useEffect(() => {
     fetchPatientsForVerification();

@@ -1,9 +1,14 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
+// Resolve API base URL: prefer explicit env, otherwise fall back to current origin
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  `${window.location.origin.replace(/\/$/, '')}/api`;
+
 // Create axios instance
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -35,10 +40,9 @@ api.interceptors.response.use(
       try {
         const refreshToken = localStorage.getItem('refreshToken');
         if (refreshToken) {
-          const response = await axios.post(
-            `${process.env.REACT_APP_API_URL}/auth/refresh`,
-            { refreshToken }
-          );
+          const response = await axios.post(`${API_BASE}/auth/refresh`, {
+            refreshToken,
+          });
 
           if (response.data.success) {
             const { token, refreshToken: newRefreshToken } = response.data.data;

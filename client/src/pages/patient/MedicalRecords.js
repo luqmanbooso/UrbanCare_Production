@@ -29,7 +29,7 @@ const MedicalRecords = () => {
   // Server base URL for static file access (without /api)
   const SERVER_BASE = process.env.REACT_APP_API_URL 
     ? process.env.REACT_APP_API_URL.replace('/api', '') 
-    : 'http://localhost:5000';
+    : `${window.location.origin.replace(/\/$/, '')}`;
   
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState([]);
