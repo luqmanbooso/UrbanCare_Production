@@ -20,6 +20,7 @@ import {
   DocumentDuplicateIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../hooks/useAuth';
+import api from '../../services/api';
 import toast from 'react-hot-toast';
 
 const PatientRecords = () => {
@@ -58,6 +59,9 @@ const PatientRecords = () => {
     priority: 'normal'
   });
   const [formErrors, setFormErrors] = useState({});
+  const apiBaseUrl = process.env.REACT_APP_API_URL || '';
+  const assetsBaseUrl = apiBaseUrl.replace(/\/api\/?$/, '');
+  const getFileUrl = (fileUrl) => `${assetsBaseUrl || ''}${fileUrl}`;
   
   const patientId = searchParams.get('patientId');
 
@@ -75,23 +79,14 @@ const PatientRecords = () => {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/doctor/patients/${patientId}/profile`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Server error: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const response = await api.get(`/doctor/patients/${patientId}/profile`);
+      const data = response.data;
       setPatientProfile(data.data);
       
     } catch (error) {
       console.error('Error fetching patient profile:', error);
-      setError(`Unable to load patient profile: ${error.message}`);
+      const message = error.response?.data?.message || error.message;
+      setError(`Unable to load patient profile: ${message}`);
     }
     
     // Always try to fetch documents, even if profile fails
@@ -108,21 +103,11 @@ const PatientRecords = () => {
 
   const fetchPatientDocuments = async () => {
     try {
-      const response = await fetch(`/api/documents/patient/${patientId}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Documents API response:', data);
-        console.log('Document URLs:', data.data?.documents?.map(doc => doc.fileUrl));
-        setDocuments(data.data?.documents || []);
-      } else {
-        console.error('Failed to fetch patient documents:', response.status, response.statusText);
-        setDocuments([]);
-      }
+      const response = await api.get(`/documents/patient/${patientId}`);
+      const data = response.data;
+      console.log('Documents API response:', data);
+      console.log('Document URLs:', data.data?.documents?.map(doc => doc.fileUrl));
+      setDocuments(data.data?.documents || []);
     } catch (error) {
       console.error('Error fetching patient documents:', error);
       setDocuments([]);
@@ -482,16 +467,8 @@ const PatientRecords = () => {
 
       console.log('Updating record:', recordId, requestBody);
 
-      const response = await fetch(`/api/medical-records/${recordId}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      const data = await response.json();
+      const response = await api.put(`/medical-records/${recordId}`, requestBody);
+      const data = response.data;
       
       console.log('Update Response:', JSON.stringify(data, null, 2));
       
@@ -570,16 +547,8 @@ const PatientRecords = () => {
 
       console.log('Request Body:', JSON.stringify(requestBody, null, 2));
 
-      const response = await fetch('/api/medical-records', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      const data = await response.json();
+      const response = await api.post('/medical-records', requestBody);
+      const data = response.data;
       
       // Log the full response for debugging
       console.log('API Response:', JSON.stringify(data, null, 2));
@@ -1099,7 +1068,7 @@ const PatientRecords = () => {
                         {doc.mimeType && doc.mimeType.startsWith('image/') ? (
                           <div className="h-48 bg-gray-100 relative">
                             <img 
-                              src={`http://localhost:5000${doc.fileUrl}`}
+                              src={getFileUrl(doc.fileUrl)}
                               alt={doc.title}
                               className="w-full h-full object-cover"
                               onLoad={(e) => {
@@ -1194,12 +1163,12 @@ const PatientRecords = () => {
                                 // For images, try direct URL first (should work with CORS fixed)
                                 if (doc.mimeType && doc.mimeType.startsWith('image/')) {
                                   // Try direct image URL
-                                  const fullUrl = `http://localhost:5000${doc.fileUrl}`;
+                                  const fullUrl = getFileUrl(doc.fileUrl);
                                   console.log('Opening image URL:', fullUrl);
                                   window.open(fullUrl, '_blank');
                                 } else {
                                   // For PDFs and other documents, try direct URL
-                                  const fullUrl = `http://localhost:5000${doc.fileUrl}`;
+                                  const fullUrl = getFileUrl(doc.fileUrl);
                                   console.log('Opening document URL:', fullUrl);
                                   window.open(fullUrl, '_blank');
                                 }
