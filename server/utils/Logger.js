@@ -1,11 +1,12 @@
 /**
  * @fileoverview Centralized Logging System for UrbanCare Application
  * @author UrbanCare Development Team
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 const winston = require('winston');
 const path = require('path');
+const fs = require('fs');
 
 /**
  * Logger Configuration and Factory
@@ -31,6 +32,14 @@ class Logger {
   }
 
   /**
+   * Detect if we are running in a serverless / Vercel environment
+   * (Vercel sets process.env.VERCEL)
+   */
+  static isServerless() {
+    return !!process.env.VERCEL || !!process.env.NOW_REGION;
+  }
+
+  /**
    * Creates a new Winston logger instance
    * @param {string} module - Module name
    * @returns {winston.Logger} Configured logger instance
@@ -38,72 +47,133 @@ class Logger {
   static createLogger(module) {
     const logLevel = process.env.LOG_LEVEL || 'info';
     const logDir = process.env.LOG_DIR || 'logs';
+    const serverless = this.isServerless();
 
-    // Ensure logs directory exists
-    const fs = require('fs');
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true });
-    }
-
-    // Custom format for logs
+    // Custom format for logs (for file / structured)
     const logFormat = winston.format.combine(
       winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
       winston.format.errors({ stack: true }),
       winston.format.json(),
-      winston.format.printf(({ timestamp, level, message, module: logModule, ...meta }) => {
-        const metaString = Object.keys(meta).length ? JSON.stringify(meta, null, 2) : '';
-        return `${timestamp} [${level.toUpperCase()}] [${logModule || module}]: ${message} ${metaString}`;
-      })
+      winston.format.printf(
+        ({ timestamp, level, message, module: logModule, ...meta }) => {
+          const metaString = Object.keys(meta).length
+            ? JSON.stringify(meta, null, 2)
+            : '';
+          return `${timestamp} [${level.toUpperCase()}] [${logModule || module}]: ${message} ${metaString}`;
+        }
+      )
     );
 
-    // Console format for development
+    // Console format for development / serverless
     const consoleFormat = winston.format.combine(
       winston.format.colorize(),
       winston.format.timestamp({ format: 'HH:mm:ss' }),
-      winston.format.printf(({ timestamp, level, message, module: logModule }) => {
-        return `${timestamp} [${level}] [${logModule || module}]: ${message}`;
+      winston.format.printf(({ timestamp, level, message, module: logModule, ...meta }) => {
+        const metaString = Object.keys(meta).length
+          ? ` ${JSON.stringify(meta)}`
+          : '';
+        return `${timestamp} [${level}] [${logModule || module}]: ${message}${metaString}`;
       })
     );
 
     const transports = [];
+    const exceptionHandlers = [];
+    const rejectionHandlers = [];
 
-    // Console transport for development
-    if (process.env.NODE_ENV !== 'production') {
+    if (serverless) {
+      /**
+       * SERVERLESS / VERCEL MODE
+       * --------------------------------
+       * - No fs.mkdirSync
+       * - No file transports
+       * - Everything goes to console
+       * - Vercel captures console output in its logs UI
+       */
       transports.push(
         new winston.transports.Console({
-          format: consoleFormat,
-          level: logLevel
+          level: logLevel,
+          format: consoleFormat
         })
       );
-    }
 
-    // File transports
-    transports.push(
-      // Error logs
-      new winston.transports.File({
-        filename: path.join(logDir, 'error.log'),
-        level: 'error',
-        format: logFormat,
-        maxsize: 5242880, // 5MB
-        maxFiles: 5
-      }),
-      // Combined logs
-      new winston.transports.File({
-        filename: path.join(logDir, 'combined.log'),
-        format: logFormat,
-        maxsize: 5242880, // 5MB
-        maxFiles: 5
-      })
-    );
+      exceptionHandlers.push(
+        new winston.transports.Console({
+          level: 'error',
+          format: consoleFormat
+        })
+      );
 
-    // Module-specific log file
-    if (module !== 'app') {
+      rejectionHandlers.push(
+        new winston.transports.Console({
+          level: 'error',
+          format: consoleFormat
+        })
+      );
+    } else {
+      /**
+       * NON-SERVERLESS MODE (local/dev/server on your own infra)
+       * --------------------------------------------------------
+       * Use file-based logging plus console in non-production
+       */
+
+      // Ensure logs directory exists (only in non-serverless env)
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+
+      // Console transport for development
+      if (process.env.NODE_ENV !== 'production') {
+        transports.push(
+          new winston.transports.Console({
+            format: consoleFormat,
+            level: logLevel
+          })
+        );
+      }
+
+      // File transports
       transports.push(
+        // Error logs
         new winston.transports.File({
-          filename: path.join(logDir, `${module.toLowerCase()}.log`),
+          filename: path.join(logDir, 'error.log'),
+          level: 'error',
           format: logFormat,
           maxsize: 5242880, // 5MB
-          maxFiles: 3
+          maxFiles: 5
+        }),
+        // Combined logs
+        new winston.transports.File({
+          filename: path.join(logDir, 'combined.log'),
+          format: logFormat,
+          maxsize: 5242880, // 5MB
+          maxFiles: 5
+        })
+      );
+
+      // Module-specific log file
+      if (module !== 'app') {
+        transports.push(
+          new winston.transports.File({
+            filename: path.join(logDir, `${module.toLowerCase()}.log`),
+            format: logFormat,
+            maxsize: 5242880, // 5MB
+            maxFiles: 3
+          })
+        );
+      }
+
+      // Exception / rejection handlers (file-based)
+      exceptionHandlers.push(
+        new winston.transports.File({
+          filename: path.join(logDir, 'exceptions.log'),
+          format: logFormat
+        })
+      );
+
+      rejectionHandlers.push(
+        new winston.transports.File({
+          filename: path.join(logDir, 'rejections.log'),
+          format: logFormat
         })
       );
     }
@@ -113,20 +183,8 @@ class Logger {
       format: logFormat,
       defaultMeta: { module },
       transports,
-      // Handle uncaught exceptions
-      exceptionHandlers: [
-        new winston.transports.File({
-          filename: path.join(logDir, 'exceptions.log'),
-          format: logFormat
-        })
-      ],
-      // Handle unhandled promise rejections
-      rejectionHandlers: [
-        new winston.transports.File({
-          filename: path.join(logDir, 'rejections.log'),
-          format: logFormat
-        })
-      ]
+      exceptionHandlers,
+      rejectionHandlers
     });
   }
 
@@ -155,7 +213,7 @@ class Logger {
       statusCode: res.statusCode,
       duration: `${duration}ms`,
       userAgent: req.get('User-Agent'),
-      ip: req.ip || req.connection.remoteAddress,
+      ip: req.ip || req.connection?.remoteAddress,
       userId: req.user?.id,
       userRole: req.user?.role
     };
@@ -194,9 +252,13 @@ class Logger {
    */
   static logSecurityEvent(event, details, severity = 'medium') {
     const logger = this.getLogger('security');
-    const logMethod = severity === 'critical' ? 'error' : 
-                     severity === 'high' ? 'warn' : 'info';
-    
+    const logMethod =
+      severity === 'critical'
+        ? 'error'
+        : severity === 'high'
+        ? 'warn'
+        : 'info';
+
     logger[logMethod]('Security Event', {
       event,
       severity,
@@ -231,12 +293,20 @@ class Logger {
       return query;
     }
 
-    const sensitiveFields = ['password', 'token', 'secret', 'key', 'pin', 'ssn', 'creditCard'];
+    const sensitiveFields = [
+      'password',
+      'token',
+      'secret',
+      'key',
+      'pin',
+      'ssn',
+      'creditCard'
+    ];
     const sanitized = { ...query };
 
     const sanitizeRecursive = (obj) => {
       for (const [key, value] of Object.entries(obj)) {
-        if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
+        if (sensitiveFields.some((field) => key.toLowerCase().includes(field))) {
           obj[key] = '[REDACTED]';
         } else if (typeof value === 'object' && value !== null) {
           sanitizeRecursive(value);
@@ -255,12 +325,12 @@ class Logger {
   static createHttpLoggerMiddleware() {
     return (req, res, next) => {
       const startTime = Date.now();
-      
+
       res.on('finish', () => {
         const duration = Date.now() - startTime;
         this.logHttpRequest(req, res, duration);
       });
-      
+
       next();
     };
   }
@@ -269,10 +339,11 @@ class Logger {
    * Gracefully closes all loggers
    */
   static async close() {
-    const closePromises = Array.from(this.loggers.values()).map(logger => {
+    const closePromises = Array.from(this.loggers.values()).map((logger) => {
       return new Promise((resolve) => {
+        // Winston 3: use close()
         logger.on('finish', resolve);
-        logger.end();
+        logger.close();
       });
     });
 
