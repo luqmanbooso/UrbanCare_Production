@@ -171,7 +171,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.get('/favicon.ico', (req, res) => res.status(204).end());
 app.get('/logo192.png', (req, res) => res.status(204).end());
 app.get('/manifest.json', (req, res) => res.status(204).end());
 app.get('/*.hot-update.json', (req, res) => res.status(204).end());
